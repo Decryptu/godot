@@ -9,9 +9,11 @@
 #include <Jolt/Core/FPException.h>
 #include <Jolt/Core/IncludeWindows.h>
 
-#ifdef JPH_PLATFORM_LINUX
+/* -- GODOT start -- */
+#if defined(JPH_PLATFORM_LINUX) && !defined(__SWITCH__)
 	#include <sys/prctl.h>
 #endif
+/* -- GODOT end -- */
 
 JPH_NAMESPACE_BEGIN
 
@@ -285,7 +287,9 @@ void JobSystemThreadPool::QueueJobs(Job **inJobs, uint inNumJobs)
 			RaiseThreadNameException(inName);
 #endif // !JPH_COMPILER_MINGW
 	}
-#elif defined(JPH_PLATFORM_LINUX)
+/* -- GODOT start -- */
+#elif defined(JPH_PLATFORM_LINUX) && !defined(__SWITCH__)
+/* -- GODOT end -- */
 	static void SetThreadName(const char *inName)
 	{
 		JPH_ASSERT(strlen(inName) < 16); // String will be truncated if it is longer
@@ -299,7 +303,9 @@ void JobSystemThreadPool::ThreadMain(int inThreadIndex)
 	char name[64];
 	snprintf(name, sizeof(name), "Worker %d", int(inThreadIndex + 1));
 
-#if defined(JPH_PLATFORM_WINDOWS) || defined(JPH_PLATFORM_LINUX)
+/* -- GODOT start -- */
+#if (defined(JPH_PLATFORM_WINDOWS) || defined(JPH_PLATFORM_LINUX)) && !defined(__SWITCH__)
+/* -- GODOT end -- */
 	SetThreadName(name);
 #endif // JPH_PLATFORM_WINDOWS || JPH_PLATFORM_LINUX
 

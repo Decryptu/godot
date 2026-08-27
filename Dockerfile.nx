@@ -1,0 +1,18 @@
+FROM devkitpro/devkita64:latest
+
+RUN dkp-pacman -Sy --noconfirm --needed \
+      switch-pkg-config switch-mesa switch-libdrm_nouveau \
+      switch-zlib switch-libpng switch-freetype switch-bzip2 \
+      switch-mbedtls switch-libwebp switch-libogg switch-libvorbis \
+      switch-libtheora switch-opusfile switch-libopus switch-libvpx \
+      switch-miniupnpc switch-zstd switch-pcre2 switch-libenet \
+      switch-bulletphysics \
+  && dkp-pacman -Scc --noconfirm || true
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-pip scons ccache \
+  && rm -rf /var/lib/apt/lists/*
+
+ENV DEVKITPRO=/opt/devkitpro
+ENV DEVKITA64=/opt/devkitpro/devkitA64
+ENV PATH=/opt/devkitpro/tools/bin:/opt/devkitpro/devkitA64/bin:$PATH

@@ -681,6 +681,11 @@ Patches:
 - `0001-missing-include.patch` ([GH-120018](https://github.com/godotengine/godot/pull/120018))
 
 
+Patches:
+
+- `src/svd.h`: `_S` is undefined before use, because newlib defines it as
+  a character-class bit in `<ctype.h>`.
+
 ## mbedtls
 
 - Upstream: https://github.com/Mbed-TLS/mbedtls
