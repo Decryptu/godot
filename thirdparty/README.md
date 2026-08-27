@@ -675,6 +675,11 @@ File extracted from upstream source:
 - `AUTHORS`, `LICENSE`
 
 
+Patches:
+
+- `src/svd.h`: `_S` is undefined before use, because newlib defines it as
+  a character-class bit in `<ctype.h>`.
+
 ## mbedtls
 
 - Upstream: https://github.com/Mbed-TLS/mbedtls

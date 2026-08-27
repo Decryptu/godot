@@ -151,6 +151,9 @@ Config::Config() {
 #endif
 
 	multiview_supported = extensions.has("OCULUS_multiview") || extensions.has("GL_OVR_multiview2") || extensions.has("GL_OVR_multiview");
+#ifdef NX_ENABLED
+	multiview_supported = false;
+#endif
 #endif
 
 #ifdef ANDROID_ENABLED

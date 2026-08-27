@@ -1,0 +1,224 @@
+import os
+import sys
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from SCons import Environment
+
+MSYS_DEVKITPRO = "/opt/devkitpro"
+
+def is_active():
+    return True
+
+
+def get_name():
+    return "NX"
+
+
+def get_devkitpro_path():
+    path = os.environ.get("DEVKITPRO", "")
+    if not path:
+        return ""
+
+    path = path.replace("\\", "/").rstrip("/")
+    if os.path.isdir(os.path.join(path, "devkitA64")):
+        return path
+
+    if os.name == "nt" and path.lower().endswith(MSYS_DEVKITPRO):
+        for candidate in ["C:/devkitPro", "C:/devkitpro"]:
+            if os.path.isdir(candidate):
+                return candidate
+
+    return path
+
+
+def can_build():
+    path = get_devkitpro_path()
+
+    if not path:
+        print("DEVKITPRO not defined in environment. NX disabled.")
+        return False
+
+    if not os.path.isdir(os.path.join(path, "devkitA64")):
+        print("devkitA64 not found in %s. NX disabled." % path)
+        return False
+
+    if not os.path.isfile(os.path.join(path, "portlibs", "switch", "lib", "libz.a")):
+        print("switch-portlibs not found in %s. NX disabled." % path)
+        return False
+
+    return True
+
+
+def get_tools(env):
+    # devkitA64 is a plain POSIX cross toolchain; the default tool chain would
+    # look for a host compiler instead.
+    return ["cc", "c++", "as", "ar", "link"]
+
+
+def get_opts():
+    from SCons.Variables import BoolVariable
+
+    return [
+        BoolVariable("touch", "Enable touch events", True),
+        BoolVariable("nxlink", "Redirect stdout/stderr to nxlink on debug builds", True),
+    ]
+
+
+def get_flags():
+    return [
+        ("arch", "arm64"),
+        # switch-mesa is the only driver devkitPro packages, and it presents
+        # GLES3 over EGL. There is no Vulkan loader on Horizon either: volk
+        # opens the driver with dlopen, and nothing on this console does.
+        ("opengl3", True),
+        ("vulkan", False),
+        ("use_volk", False),
+        ("d3d12", False),
+        ("metal", False),
+        ("target", "template_release"),
+        # godot_nx.cpp points the engine at romfs:/game.pck with --main-pack,
+        # which a template refuses unless overrides are left on. Horizon hands
+        # an NRO its argv from hbmenu rather than from a shell, so there is no
+        # command line here for anyone else to write.
+        ("disable_path_overrides", False),
+        ("builtin_enet", False),
+        ("builtin_libogg", False),
+        ("builtin_libtheora", False),
+        ("builtin_libvorbis", False),
+        ("builtin_libwebp", False),
+        ("builtin_mbedtls", True),
+        ("builtin_miniupnpc", False),
+        ("builtin_pcre2", False),
+        ("builtin_wslay", False),
+        ("builtin_zstd", False),
+        ("builtin_pcre2_with_jit", False),
+        ("module_denoise_enabled", False),
+        ("module_lightmapper_rd_enabled", False),
+        ("module_raycast_enabled", False),
+        ("module_openxr_enabled", False),
+        ("module_mono_enabled", False),
+    ]
+
+
+def configure(env: "Environment"):
+    supported_arches = ["arm64"]
+    if env["arch"] not in supported_arches:
+        print(
+            'Unsupported CPU architecture "%s" for NX. Supported architectures are: %s.'
+            % (env["arch"], ", ".join(supported_arches))
+        )
+        sys.exit(255)
+
+    devkitpro = get_devkitpro_path()
+    devkita64 = devkitpro + "/devkitA64"
+    libnx = devkitpro + "/libnx"
+    portlibs = devkitpro + "/portlibs/switch"
+
+    env["ENV"]["DEVKITPRO"] = devkitpro
+    env["ENV"]["DEVKITA64"] = devkita64
+    env.PrependENVPath("PATH", devkitpro + "/tools/bin")
+    env.PrependENVPath("PATH", portlibs + "/bin")
+    env.PrependENVPath("PATH", devkita64 + "/bin")
+    os.environ["PATH"] = env["ENV"]["PATH"]
+
+    prefix = devkita64 + "/bin/aarch64-none-elf-"
+    env["CC"] = prefix + "gcc"
+    env["CXX"] = prefix + "g++"
+    env["LINK"] = prefix + "g++"
+    env["AS"] = prefix + "as"
+    env["AR"] = prefix + "gcc-ar"
+    env["RANLIB"] = prefix + "gcc-ranlib"
+    env["STRIP"] = prefix + "strip"
+    env["OBJCOPY"] = prefix + "objcopy"
+
+    env["ASCOM"] = "$CC $CCFLAGS $_CPPDEFFLAGS $_CPPINCFLAGS -c -o $TARGET $SOURCES"
+
+    env["OBJPREFIX"] = ""
+    env["OBJSUFFIX"] = ".o"
+    env["SHOBJPREFIX"] = ""
+    env["SHOBJSUFFIX"] = ".os"
+    env["LIBPREFIX"] = "lib"
+    env["LIBSUFFIX"] = ".a"
+    env["LIBPREFIXES"] = ["$LIBPREFIX"]
+    env["LIBSUFFIXES"] = ["$LIBSUFFIX"]
+    env["PROGSUFFIX"] = ".elf"
+
+    if os.name == "nt":
+        env.use_windows_spawn_fix()
+
+    arch_flags = ["-march=armv8-a+crc+crypto", "-mtune=cortex-a57", "-mtp=soft", "-fPIE", "-ftls-model=local-exec"]
+
+    env.Append(CCFLAGS=arch_flags + ["-ffunction-sections", "-fdata-sections"])
+    env.Append(LINKFLAGS=arch_flags + ["-specs={}/switch.specs".format(libnx), "-Wl,--gc-sections"])
+
+    env.Prepend(CPPPATH=["#platform/nx"])
+    env.Append(CCFLAGS=["-isystem", libnx + "/include", "-isystem", portlibs + "/include"])
+    env.Append(LIBPATH=[libnx + "/lib", portlibs + "/lib"])
+
+    env.Append(CPPDEFINES=["NX_ENABLED", "__SWITCH__", "PTHREAD_NO_RENAME", "UNIX_SOCKET_UNAVAILABLE"])
+    # Jolt has no Horizon branch; newlib with pthreads is what its Linux one
+    # compiles to.
+    env.Append(CPPDEFINES=["JPH_PLATFORM_LINUX"])
+
+    if env["touch"]:
+        env.Append(CPPDEFINES=["TOUCH_ENABLED"])
+
+    if env["nxlink"] and env.debug_features:
+        env.Append(CPPDEFINES=["NXLINK_ENABLED"])
+
+    if env["opengl3"]:
+        env.Append(CPPDEFINES=["GLES3_ENABLED"])
+        env.Append(LIBS=["EGL", "GLESv2", "glapi", "drm_nouveau"])
+
+    if env["builtin_freetype"] or env["builtin_libpng"] or env["builtin_zlib"]:
+        env["builtin_freetype"] = True
+        env["builtin_libpng"] = True
+        env["builtin_zlib"] = True
+
+    if not env["builtin_freetype"]:
+        env.Append(CCFLAGS=["-isystem", portlibs + "/include/freetype2"])
+        env.Append(LIBS=["freetype", "bz2"])
+
+    if not env["builtin_libpng"]:
+        env.Append(CCFLAGS=["-isystem", portlibs + "/include/libpng16"])
+        env.Append(LIBS=["png16"])
+
+    if not env["builtin_libtheora"]:
+        env["builtin_libogg"] = False
+        env["builtin_libvorbis"] = False
+        env.Append(LIBS=["theora", "theoradec"])
+
+    if not env["builtin_libvorbis"]:
+        env["builtin_libogg"] = False
+        env.Append(LIBS=["vorbisfile", "vorbis"])
+
+    if not env["builtin_libogg"]:
+        env.Append(LIBS=["ogg"])
+
+    if not env["builtin_libwebp"]:
+        env.Append(LIBS=["webp"])
+
+    if not env["builtin_enet"]:
+        env.Append(LIBS=["enet"])
+
+    if not env["builtin_mbedtls"]:
+        env.Append(LIBS=["mbedtls", "mbedx509", "mbedcrypto"])
+
+    if not env["builtin_wslay"]:
+        env.Append(LIBS=["wslay"])
+
+    if not env["builtin_miniupnpc"]:
+        env.Append(CCFLAGS=["-isystem", portlibs + "/include/miniupnpc"])
+        env.Append(LIBS=["miniupnpc"])
+
+    if not env["builtin_pcre2"]:
+        env.Append(LIBS=["pcre2-32"])
+
+    if not env["builtin_zstd"]:
+        env.Append(LIBS=["zstd"])
+
+    if not env["builtin_zlib"]:
+        env.Append(LIBS=["z"])
+
+    env.Append(LIBS=["nx", "m"])
